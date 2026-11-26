@@ -2,7 +2,7 @@
 
 Run named-entity extraction on the detailed descriptions of **all 1,403,822 patents** in the original biomedical C15 roster (grant years **1976-2024**). The source release contains usable text for **1,402,145** patents; preserve the **1,676 absent** and **one blank** record. Do not restrict to a regression sample, years after burn-in, particular CPCs, or patents with an event.
 
-**Handoff:** Patrick provides one small file separately: `roster_for_thresholds.parquet` (patent ID and grant year only). All source code, label prompts, and instructions are in this public repository. No private GitHub project, Helix login, or USPTO account is required. Grant texts come from the [PatentsView 2024 release](https://zenodo.org/records/15062212); weights come from the [BioGLiNER biomedical bi-encoder](https://huggingface.co/Ihor/gliner-biomed-bi-large-v1.0).
+The [C15 roster](input/roster_for_thresholds.parquet) ships with the repository. It contains only patent IDs and grant years. Setup reads it directly from the checkout; no separate attachment or private account is required. Grant texts come from the [PatentsView 2024 release](https://zenodo.org/records/15062212); weights come from the [BioGLiNER biomedical bi-encoder](https://huggingface.co/Ihor/gliner-biomed-bi-large-v1.0).
 
 ## 1. Prepare a shared workspace
 
@@ -12,8 +12,6 @@ Use a Linux cluster with Slurm, CUDA-capable GPUs, and persistent shared storage
 umask 077
 git clone https://github.com/PCK1992/patent-description-biogliner.git
 cd patent-description-biogliner
-mkdir -p input
-cp /path/to/roster_for_thresholds.parquet input/
 
 # Load a cluster Python (3.13.1 on Helix) and a compatible NVIDIA driver.
 python3 -m venv .venv

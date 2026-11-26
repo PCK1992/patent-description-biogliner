@@ -1,5 +1,7 @@
-# Allowlist: data, model caches, credentials, logs and vendored sources stay local.
+# Only the two-column patent roster is public; text, outputs and caches stay local.
 *
+!/input/
+!/input/roster_for_thresholds.parquet
 !/.gitignore
 !/README.md
 !/requirements.txt
