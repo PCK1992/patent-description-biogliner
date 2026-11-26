@@ -4,6 +4,24 @@ Run named-entity extraction on the detailed descriptions of **all 1,403,822 pate
 
 The [C15 roster](input/roster_for_thresholds.parquet) ships with the repository. It contains only patent IDs and grant years. Setup reads it directly from the checkout; no separate attachment or private account is required. Grant texts come from the [PatentsView 2024 release](https://zenodo.org/records/15062212); weights come from the [BioGLiNER biomedical bi-encoder](https://huggingface.co/Ihor/gliner-biomed-bi-large-v1.0).
 
+## GPU toy example
+
+Start here to test the scorer without downloading any patents. Clone the repository and install the environment as in step 1 below, stopping **before** `bash scripts/prepare.sh`. In the checkout, with that environment active:
+
+```bash
+# On a node with internet access: cache the inference weights, not the patent archives.
+export HF_HOME="$PWD/.hf-cache"
+python code/cache_model.py
+
+# Slurm: add your local account/partition if required. No production jobs are submitted.
+export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+srun --gres=gpu:1 --cpus-per-task=2 --mem=16G --time=00:10:00 .venv/bin/python code/toy.py
+```
+
+Already inside a GPU allocation? Run `python code/toy.py` directly with the same cache settings. The [toy script](code/toy.py) uses the production checkpoint, labels, thresholds and inference functions on two synthetic wheelchair descriptions: one short and one long enough to require overlapping windows. It prints the device, package versions, example spans and **`TOY PASS (cuda)`** on success. No Stanford GPU is needed to inspect the code, but a CPU pass is not a CUDA pass. For a real-patent pilot only, complete step 1 and run `bash scripts/submit.sh pilot`; this prepares 1976, not all 49 years.
+
+**Files for the full run:** [Download the exact 1.4M-ID C15 roster (Parquet, 3 MB)](https://raw.githubusercontent.com/PCK1992/patent-description-biogliner/38b3ea7/input/roster_for_thresholds.parquet). [Download source descriptions by grant year (Zenodo)](https://zenodo.org/records/15062212). The files named `g_detail_desc_text_YEAR.tsv.zip` contain **all US grants** for that year, not just C15. The pipeline selects the roster IDs and writes the C15-only files to `years/YEAR.parquet`. No manual download is necessary in the usual workflow.
+
 ## 1. Prepare a shared workspace
 
 Use a Linux cluster with Slurm, CUDA-capable GPUs, and persistent shared storage visible from all nodes. Clone **on the cluster**, not on a laptop. Use a private working directory for the generated data. The 49 national description archives alone total **71.2 GB** compressed; allow substantial extra room for annual extracts, weights, and scored spans. Check the actual workspace quota as the first years finish.
