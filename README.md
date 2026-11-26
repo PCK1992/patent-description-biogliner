@@ -4,6 +4,22 @@ Run named-entity extraction on the detailed descriptions of **all 1,403,822 pate
 
 The [C15 roster](input/roster_for_thresholds.parquet) ships with the repository. It contains only patent IDs and grant years. Setup reads it directly from the checkout; no separate attachment or private account is required. Grant texts come from the [PatentsView 2024 release](https://zenodo.org/records/15062212); weights come from the [BioGLiNER biomedical bi-encoder](https://huggingface.co/Ihor/gliner-biomed-bi-large-v1.0).
 
+## Stanford handoff: 2016 onward
+
+After [setup](#1-prepare-a-shared-workspace), run this from the checkout with the virtual environment active. If you already have a checkout, first run `git pull --ff-only`. Set your site's partitions/account if required.
+
+```bash
+START_YEAR=2016 MAX_GPUS=10 bash scripts/submit.sh all
+```
+
+This scores **568,976 C15 grants from 2016 through 2024** (568,973 nonempty descriptions), in **72 production shards, numbered 320–391**. It prepares only these nine grant years plus 1976 for the short CUDA/offset check. If staging ZIPs manually, stage 1976 and 2016–2024 only. There is no GPU speed benchmark in the submission.
+
+Slurm requests **one GPU and four CPUs per production job**, up to ten simultaneous jobs. Within each job, the launcher starts **three workers per full A100 or H200**, **two per A40**, or one on other GPUs. Each worker scores different row groups; the checkpoint, offsets, labels and confidence scores use the same scorer as before. Ten A100/H200 GPUs can therefore run up to 30 workers, subject to allocation. This is not a 30-fold speedup.
+
+**Helix timing:** On the same 12 descriptions, an A100 40 GB took 33.5 s with two workers/two CPUs, 33.6 s with two workers/four CPUs, and 28.6 s with three workers/four CPUs. The repeat gave 33.3 s vs 28.8 s (16% higher throughput); all saved spans and scores matched. Four workers were slower. These are Helix measurements, not Stanford timings or a measured H200 gain.
+
+Please send the Git commit, Slurm job IDs and the first completed shard number to coordinate the year split before both clusters score the same years. At completion share `texts_years_2016_2024.json`, `scores_tasks_320_391.json` and the output location. Keep each site's original manifests; exchange data through research storage, not GitHub.
+
 ## GPU toy example
 
 Start here to test the scorer without downloading any patents. Clone the repository and install the environment as in step 1 below, stopping **before** `bash scripts/prepare.sh`. In the checkout, with that environment active:
@@ -64,7 +80,7 @@ This submits **all 392 shards**, not eight shards. `MAX_GPUS` limits simultaneou
 
 1. **CPU:** build 49 annual tables; keep original text and explicit missing statuses.
 2. **One short GPU pilot:** as soon as 1976 is ready, sample spread-out row groups. Check span offsets, nonzero detections, multi-window handling and truncation. The time limit is 15 minutes. No separate 2019 test.
-3. **Production:** after the pilot and full text audit pass, run eight disjoint shards per year. Each worker uses one GPU, two CPUs, and 32 GB of host RAM. It loads the weights once, offline.
+3. **Production:** after the pilot and text audit pass, run eight disjoint shards per year. Each job requests one GPU, four CPUs and 32 GB of host RAM. Workers share the GPU and load their own copy of the weights once, offline.
 4. **Final CPU audit:** validate every patent ID and row group against the source; check model signatures, span counts, text coverage and missingness. The final receipt is `scores_complete.json`.
 
 The jobs survive logout. Record the job IDs printed on submission. No Stanford-specific account, partition, email or GPU type is hardcoded. `MAIL_TO` enables Slurm BEGIN/END/FAIL messages; actual delivery depends on the cluster mail service.

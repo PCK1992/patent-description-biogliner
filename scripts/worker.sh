@@ -9,7 +9,7 @@ py=${PYTHON:?Use submit.sh with an active virtual environment}
 case "$1" in
     year) exec "$py" -u code/build_year.py "${2:-$((1976 + SLURM_ARRAY_TASK_ID))}" ;;
     pilot) exec "$py" -u code/score.py 1976 --pilot ;;
-    full) exec "$py" -u code/score.py "$((1976 + SLURM_ARRAY_TASK_ID / 8))" --nshards 8 --shard "$((SLURM_ARRAY_TASK_ID % 8))" ;;
+    full) exec "$py" -u code/production.py "$SLURM_ARRAY_TASK_ID" "${2:-0-391}" ;;
     audit) shift; exec "$py" -u code/audit.py "$@" ;;
     *) exit 2 ;;
 esac
