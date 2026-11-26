@@ -1,0 +1,12 @@
+# Allowlist: data, model caches, credentials, logs and vendored sources stay local.
+*
+!/.gitignore
+!/README.md
+!/requirements.txt
+!/code/
+!/code/*.py
+!/code/labels.json
+!/scripts/
+!/scripts/*.sh
+!/tests/
+!/tests/*.py
