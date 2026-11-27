@@ -14,8 +14,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import torch
 import inference
+import window_repair
 from cache_model import MAIN
 MODEL = "Ihor/gliner-biomed-bi-large-v1.0"
+OLD_HASHES = dict(runner_sha256="764e9d6882fdabfc8f91c5da9c011a710a6c98a97ba2f433417a10b456894901",
+                  backend_sha256="ff2fba8242e2a7f0ec70a6f24ef7182bb4d8baac7cb47bd807fd68cc1ca9d008")
+LABELS_SHA = "90c4f611f1dc6856fa1df8aab379544c239ce32319121c59c6984495eef193ec"
 SPAN = pa.schema([("patent_id", pa.string()), ("description_part", pa.int32()),
                   ("start", pa.int32()), ("end", pa.int32()), ("text", pa.string()),
                   ("label", pa.string()), ("score", pa.float32()), ("source_file", pa.string())])
@@ -29,10 +33,18 @@ def load_pinned(device="cuda"):
     return GLiNER.from_pretrained(path, revision=MAIN).to(device).eval()
 
 
+def signature_for(source, archive, pilot):
+    return dict(model=MODEL, revision=MAIN, source=source, source_archive=archive, pilot=pilot,
+                labels_sha256=LABELS_SHA,
+                runner_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                backend_sha256=hashlib.sha256(Path(inference.__file__).read_bytes()).hexdigest(),
+                window_repair_sha256=hashlib.sha256(Path(window_repair.__file__).read_bytes()).hexdigest())
+
+
 def main(year, shard, nshards, pilot):
     labels = json.loads(Path(__file__).with_name("labels.json").read_text())
     assert torch.cuda.is_available() and len(set(labels)) == len(labels) == 127
-    assert hashlib.sha256(json.dumps(labels).encode()).hexdigest() == "90c4f611f1dc6856fa1df8aab379544c239ce32319121c59c6984495eef193ec"
+    assert hashlib.sha256(json.dumps(labels).encode()).hexdigest() == LABELS_SHA
     assert version("gliner") == "0.2.28" and version("transformers") == "5.13.1"
     model = load_pinned()
     tokenizer = model.data_processor.transformer_tokenizer
@@ -49,13 +61,9 @@ def main(year, shard, nshards, pilot):
         groups = range(shard, pf.num_row_groups, nshards)
         base = Path("scored") / str(year)
     base.mkdir(parents=True, exist_ok=True)
-    signature = dict(model=MODEL, revision=MAIN,
-                     backend_sha256=hashlib.sha256(Path(inference.__file__).read_bytes()).hexdigest(),
-                     source=source.name, source_archive=json.loads(source.with_suffix(".json").read_text())["archive_checksum"],
-                     labels_sha256=hashlib.sha256(json.dumps(labels).encode()).hexdigest(),
-                     runner_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), pilot=pilot)
+    signature = signature_for(source.name, json.loads(source.with_suffix(".json").read_text())["archive_checksum"], pilot)
     def checked(text, max_tokens, overlap, count):
-        wins = inference.chunk_text(text, max_tokens, overlap, count)
+        wins = inference.chunk_text(text, max_tokens, overlap, count, stats)
         finish = 0
         for offset, win in wins:
             if (text[offset:offset+len(win)] != win or text[finish:offset].strip()
@@ -68,7 +76,8 @@ def main(year, shard, nshards, pilot):
     for group in groups:
         done = base / f"rg{group:05d}"
         if done.is_dir():
-            assert json.loads((done/"manifest.json").read_text())["signature"] == signature
+            assert window_repair.compatible(json.loads((done/"manifest.json").read_text())["signature"],
+                                            signature, OLD_HASHES)
             continue
         temp = done.with_suffix(".partial")
         if temp.exists():

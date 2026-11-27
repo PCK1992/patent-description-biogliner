@@ -17,6 +17,8 @@ import pyarrow.parquet as pq
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "code"))
 import inference
+from score import signature_for, OLD_HASHES
+from window_repair import compatible
 from production import score_shard, workers_for
 from roster import verify
 
@@ -35,8 +37,32 @@ class PipelineTests(unittest.TestCase):
         out = inference.spans(text, model, ["A","B"], Counter(), wins)
         self.assertEqual([(s["start"],s["end"],s["label"],s["score"]) for s in out],
                          [(6,11,"A",.7),(6,11,"B",.7)])
-        with self.assertRaises(ValueError):
-            inference.chunk_text("toolong",2,1,len)
+    def test_oversized_runs(self):
+        text = "aa  " + "A9é" * 34 + "\n" + "11" * 33 + "  zz"
+        stats = Counter()
+        wins = inference.chunk_text(text, 15, 4, len, stats)
+        self.assertEqual(stats["oversized_runs_split"], 2)
+        finish = 0
+        for offset, win in wins:
+            self.assertEqual(text[offset:offset+len(win)], win)
+            self.assertLessEqual(len(win), 15)
+            self.assertFalse(text[finish:offset].strip())
+            if offset > 0 and offset < len(text) and not text[offset-1].isspace() and not text[offset].isspace():
+                self.assertLess(offset, finish)
+            finish = max(finish, offset+len(win))
+        self.assertEqual(finish, len(text))
+        with self.assertRaisesRegex(ValueError, "One character"):
+            inference.chunk_text("x", 1, 1, lambda s: 2 * len(s))
+
+    def test_resume_accepts_only_known_code_and_same_data(self):
+        current = signature_for("2016.parquet", "md5:original", False)
+        legacy = dict(current, **OLD_HASHES)
+        del legacy["window_repair_sha256"]
+        for sig in [current, legacy]:
+            self.assertTrue(compatible(sig, current, OLD_HASHES))
+            for key in ["revision", "source_archive", "labels_sha256", "runner_sha256", "backend_sha256", "pilot"]:
+                self.assertFalse(compatible(dict(sig, **{key: "wrong"}), current, OLD_HASHES))
+        self.assertFalse(compatible(dict(current, window_repair_sha256="wrong"), current, OLD_HASHES))
 
     def test_cohort_year_and_missing_text(self):
         with tempfile.TemporaryDirectory() as d:
@@ -121,9 +147,9 @@ class PipelineTests(unittest.TestCase):
                 Path("years/2016.json").write_text(json.dumps(dict(roster=1,nonempty=1,empty=0,absent=0,archive_checksum="md5:fixture")))
                 group=Path("scored/2016/rg00000")
                 group.mkdir(parents=True)
-                sig={k:hashlib.sha256((ROOT/"code"/p).read_bytes()).hexdigest()
-                     for k,p in (("runner_sha256","score.py"),("backend_sha256","inference.py"))}
-                sig.update(pilot=False,source="2016.parquet",source_archive="md5:fixture",revision="75fb10d6d5500c5e98c285493578116540ec47d3")
+                sig=signature_for("2016.parquet", "md5:fixture", False)
+                sig.update(OLD_HASHES)
+                del sig["window_repair_sha256"]
                 (group/"manifest.json").write_text(json.dumps(dict(signature=sig,documents=1,stats={})))
                 (group/"documents.json").write_text(json.dumps([dict(patent_id="42",status="ok",spans_floor=0,spans_at_050=0)]))
                 pq.write_table(pa.table({"score":pa.array([],type=pa.float32())}),group/"spans.parquet")

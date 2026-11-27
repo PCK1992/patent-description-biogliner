@@ -1,6 +1,5 @@
 """Reconcile complete text and NER ledgers. Never count an unscored document as zero."""
 import json
-import hashlib
 import os
 from pathlib import Path
 import sys
@@ -9,6 +8,8 @@ import pyarrow.parquet as pq
 import pyarrow.compute as pc
 from production import text_receipt
 from roster import EXPECTED, verify
+from score import OLD_HASHES, signature_for
+from window_repair import compatible
 
 mode = sys.argv[1]
 assert mode in {"texts", "scores"}
@@ -18,8 +19,6 @@ start, end = 1976+first//8, 1976+last//8
 partial_years = (start,end) != (1976,2024)
 if partial_years:
     roster = verify("input/roster_for_thresholds.parquet")
-runner = hashlib.sha256(Path(__file__).with_name("score.py").read_bytes()).hexdigest()
-backend = hashlib.sha256(Path(__file__).with_name("inference.py").read_bytes()).hexdigest()
 totals = Counter()
 for year in range(start, end+1):
     meta = json.loads(Path(f"years/{year}.json").read_text())
@@ -30,16 +29,14 @@ for year in range(start, end+1):
         assert sorted(map(str,expected)) == sorted(src.read(columns=["patent_id"])["patent_id"].to_pylist())
     totals.update({k:meta[k] for k in ("roster","nonempty","absent","empty")})
     if mode == "scores":
+        expected_sig = signature_for(f"{year}.parquet", meta["archive_checksum"], False)
         for i in range(src.num_row_groups):
             if not first <= (year - 1976) * 8 + i % 8 <= last:
                 continue
             group = Path(f"scored/{year}/rg{i:05d}")
             m = json.loads((group/"manifest.json").read_text())
             sig = m["signature"]
-            assert not sig["pilot"] and sig["runner_sha256"] == runner
-            assert sig["backend_sha256"] == backend
-            assert sig["source"] == f"{year}.parquet" and sig["source_archive"] == meta["archive_checksum"]
-            assert sig["revision"] == "75fb10d6d5500c5e98c285493578116540ec47d3"
+            assert compatible(sig, expected_sig, OLD_HASHES)
             docs = json.loads((group/"documents.json").read_text())
             ids = src.read_row_group(i, columns=["patent_id"]).column(0).to_pylist()
             assert ids == [r["patent_id"] for r in docs] and m["documents"] == len(ids)

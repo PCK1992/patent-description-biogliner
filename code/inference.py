@@ -5,9 +5,10 @@ import re
 import warnings
 
 import torch
+from window_repair import split_run
 
 
-def chunk_text(text, limit, overlap, count):
+def chunk_text(text, limit, overlap, count, stats=None):
     if count(text) <= limit:
         return [(0, text)]
     words = list(re.finditer(r"\S+", text))
@@ -18,7 +19,14 @@ def chunk_text(text, limit, overlap, count):
         ends = range(pos, len(words))
         n = bisect_right(ends, limit, key=lambda j: count(text[start:words[j].end()]))
         if not n:
-            raise ValueError("Single word exceeds the tokenizer budget")
+            run = words[pos][0]
+            if count(run) <= limit:
+                raise ValueError(f"Inconsistent tokenizer window search at {start}")
+            result.extend(split_run(run, start, limit, overlap, count))
+            if stats is not None:
+                stats["oversized_runs_split"] += 1
+            pos += 1
+            continue
         stop = pos + n
         result.append((start, text[start:words[stop-1].end()]))
         if stop == len(words):

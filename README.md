@@ -6,6 +6,17 @@ The [C15 roster](input/roster_for_thresholds.parquet) ships with the repository.
 
 ## Stanford handoff: 2016 onward
 
+**Updating an existing run (27 November):** The scorer now handles long strings without spaces. If the checkout is in use, let the old array finish (or hold its queued jobs and let active workers finish) before pulling. From the same checkout and virtual environment:
+
+```bash
+git pull --ff-only
+python -m unittest discover -s tests
+# After the previous array has finished, resume with its existing pilot and data.
+START_YEAR=2016 MAX_GPUS=10 bash scripts/submit.sh production
+```
+
+Do not start a duplicate array: if you held queued jobs, release them instead of submitting the same tasks again. Completed groups from the previous public scorer are verified and skipped; only unfinished groups need scoring. No new text or weights are needed. Ordinary windows are unchanged. Only a whitespace-free run over 1,500 model tokens is split into overlapping original-text slices (up to 40 characters of overlap inside the run). Each slice is checked against the same token limit. The group manifest counts these runs as `oversized_runs_split`.
+
 After [setup](#1-prepare-a-shared-workspace), run this from the checkout with the virtual environment active. If you already have a checkout, first run `git pull --ff-only`. Set your site's partitions/account if required.
 
 ```bash
